@@ -4,7 +4,6 @@
 use crate::models::codebuddy::CodebuddyAccount;
 use serde::Serialize;
 use serde_json::Value;
-use std::collections::HashMap;
 use std::sync::{OnceLock, RwLock};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -44,6 +43,7 @@ struct ReportRow {
 struct ReportMeta {
     generated_at: String,
     data_collected_at: String,
+    data_collected_note: Option<String>,
     data_delayed: String,
     next_auth_refresh_trigger_time: String,
 }
@@ -52,7 +52,7 @@ struct ReportMeta {
 struct ReportRefreshState {
     data_collected_at: Option<chrono::DateTime<chrono::Utc>>,
     last_auth_trigger_at: Option<chrono::DateTime<chrono::Utc>>,
-    service_last_refreshed_at: HashMap<String, chrono::DateTime<chrono::Utc>>,
+    last_auth_trigger_note: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -144,39 +144,6 @@ fn needs_auth_refresh_trigger(now: chrono::DateTime<chrono::Utc>) -> bool {
     now.signed_duration_since(collected_at).num_seconds() > AUTH_REFRESH_STALE_THRESHOLD_SECONDS
 }
 
-fn collect_due_refresh_services(
-    now: chrono::DateTime<chrono::Utc>,
-    policies: &[ServiceRefreshPolicy],
-) -> Vec<ServiceRefreshPolicy> {
-    let state = report_refresh_state().read().ok();
-    let Some(state_guard) = state else {
-        return policies
-            .iter()
-            .copied()
-            .filter(|policy| policy.interval_minutes > 0)
-            .collect();
-    };
-
-    policies
-        .iter()
-        .copied()
-        .filter(|policy| {
-            if policy.interval_minutes <= 0 {
-                return false;
-            }
-
-            match state_guard.service_last_refreshed_at.get(policy.key) {
-                Some(last_refreshed_at) => {
-                    now.signed_duration_since(last_refreshed_at.clone())
-                        .num_seconds()
-                        >= (policy.interval_minutes as i64) * 60
-                }
-                None => true,
-            }
-        })
-        .collect()
-}
-
 async fn run_refresh_for_service(policy: ServiceRefreshPolicy) -> Result<(), String> {
     match policy.key {
         "antigravity" => super::account::refresh_all_quotas_logic()
@@ -217,32 +184,46 @@ async fn maybe_trigger_auth_refresh_check() {
     }
 
     let cfg = super::config::get_user_config();
-    let policies = build_service_refresh_policies(&cfg);
-    let due_services = collect_due_refresh_services(check_started_at, &policies);
+    let due_services = build_service_refresh_policies(&cfg)
+        .into_iter()
+        .filter(|policy| policy.interval_minutes > 0)
+        .collect::<Vec<_>>();
 
     if let Ok(mut state) = report_refresh_state().write() {
         state.last_auth_trigger_at = Some(check_started_at);
+        state.last_auth_trigger_note = None;
     }
 
-    let mut refreshed_keys: Vec<&'static str> = Vec::new();
+    let mut failed_services: Vec<&'static str> = Vec::new();
     for policy in due_services {
         match run_refresh_for_service(policy).await {
-            Ok(()) => refreshed_keys.push(policy.key),
-            Err(err) => super::logger::log_warn(&format!(
-                "[WebReport] AuthRefresh check 刷新失败: service={}, error={}",
-                policy.key, err
-            )),
+            Ok(()) => {}
+            Err(err) => {
+                super::logger::log_warn(&format!(
+                    "[WebReport] AuthRefresh check 刷新失败: service={}, error={}",
+                    policy.key, err
+                ));
+                failed_services.push(policy.key);
+            }
         }
     }
+
+    let failure_note = if failed_services.is_empty() {
+        None
+    } else {
+        Some(
+            failed_services
+                .into_iter()
+                .map(|service| format!("{}刷新失败,该服务数据为历史数据", service))
+                .collect::<Vec<_>>()
+                .join("; "),
+        )
+    };
 
     let finished_at = chrono::Utc::now();
     if let Ok(mut state) = report_refresh_state().write() {
         state.data_collected_at = Some(finished_at);
-        for key in refreshed_keys {
-            state
-                .service_last_refreshed_at
-                .insert(key.to_string(), finished_at);
-        }
+        state.last_auth_trigger_note = failure_note;
     }
 }
 
@@ -276,9 +257,24 @@ fn build_report_meta(generated_at: chrono::DateTime<chrono::Utc>) -> ReportMeta 
     ReportMeta {
         generated_at: generated_at.to_rfc3339(),
         data_collected_at: collected_at.to_rfc3339(),
+        data_collected_note: state
+            .as_ref()
+            .and_then(|guard| guard.last_auth_trigger_note.clone()),
         data_delayed: format_elapsed_hours_minutes(delayed_seconds),
         next_auth_refresh_trigger_time: format_next_auth_refresh_trigger_time(delayed_seconds),
     }
+}
+
+fn format_data_collected_at(meta: &ReportMeta) -> String {
+    let Some(note) = meta
+        .data_collected_note
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return meta.data_collected_at.clone();
+    };
+    format!("{} ({})", meta.data_collected_at, note)
 }
 
 pub async fn start_server() {
@@ -1584,6 +1580,7 @@ fn format_unix_timestamp(value: Option<i64>) -> String {
 
 fn render_markdown(meta: &ReportMeta, rows: &[ReportRow]) -> String {
     let now = chrono::Utc::now();
+    let data_collected_at = format_data_collected_at(meta);
     let mut output = String::new();
     output.push_str("# Cockpit Tools Usage Report\n\n");
     output.push_str(&format!(
@@ -1592,7 +1589,7 @@ fn render_markdown(meta: &ReportMeta, rows: &[ReportRow]) -> String {
     ));
     output.push_str(&format!(
         "- Data collected at: {}\n",
-        markdown_cell(&meta.data_collected_at)
+        markdown_cell(&data_collected_at)
     ));
     output.push_str(&format!(
         "- Data delayed: {}\n",
@@ -1636,11 +1633,12 @@ fn markdown_cell(value: &str) -> String {
 
 fn render_yaml(meta: &ReportMeta, rows: &[ReportRow]) -> String {
     let now = chrono::Utc::now();
+    let data_collected_at = format_data_collected_at(meta);
     let mut output = String::new();
     output.push_str(&format!("generated_at: {}\n", yaml_quote(&meta.generated_at)));
     output.push_str(&format!(
         "data_collected_at: {}\n",
-        yaml_quote(&meta.data_collected_at)
+        yaml_quote(&data_collected_at)
     ));
     output.push_str(&format!("data_delayed: {}\n", yaml_quote(&meta.data_delayed)));
     output.push_str(&format!(
@@ -1684,6 +1682,7 @@ fn render_yaml(meta: &ReportMeta, rows: &[ReportRow]) -> String {
 
 fn render_html(meta: &ReportMeta, rows: &[ReportRow]) -> String {
     let now = chrono::Utc::now();
+    let data_collected_at = format_data_collected_at(meta);
     let mut output = String::new();
     output.push_str(
         "<!DOCTYPE html><html><head><meta charset=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/>",
@@ -1700,7 +1699,7 @@ fn render_html(meta: &ReportMeta, rows: &[ReportRow]) -> String {
     ));
     output.push_str(&format!(
         "<p>Data collected at: <span class=\"mono\">{}</span></p>",
-        html_escape(&meta.data_collected_at)
+        html_escape(&data_collected_at)
     ));
     output.push_str(&format!(
         "<p>Data delayed: <span class=\"mono\">{}</span></p>",
