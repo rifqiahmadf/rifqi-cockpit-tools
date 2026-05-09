@@ -58,6 +58,7 @@ pub mod qoder_instance;
 pub mod qoder_oauth;
 pub mod quota;
 pub mod quota_cache;
+pub mod rest_api;
 pub mod sync_settings;
 pub mod trae_account;
 pub mod trae_instance;

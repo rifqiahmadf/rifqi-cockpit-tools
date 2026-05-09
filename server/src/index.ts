@@ -3,6 +3,7 @@ import cors from 'cors';
 import invokeRouter from './routes/invoke.js';
 import eventsRouter from './routes/events.js';
 import fsRouter from './routes/fs.js';
+import rustApiRouter from './routes/rust-api.js';
 import { startHeartbeat } from './services/event-bus.js';
 import { setupSwaggerUI } from './middleware/swagger.js';
 
@@ -61,6 +62,7 @@ app.get('/api/version', (_, res) => res.json({ version: '0.22.20' }));
 app.use('/api/invoke', invokeRouter);
 app.use('/api/events', eventsRouter);
 app.use('/api/fs', fsRouter);
+app.use('/api', rustApiRouter);
 
 setupSwaggerUI(app);
 

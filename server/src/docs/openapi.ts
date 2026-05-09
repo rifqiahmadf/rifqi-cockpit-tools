@@ -59,6 +59,7 @@ export const openapiOptions: swaggerJSDoc.Options = {
       { name: 'Fingerprint Management', description: 'Browser fingerprint operations' },
       { name: 'Backup', description: 'Backup and restore operations' },
       { name: 'Config', description: 'Configuration management' },
+      { name: 'Rust API', description: 'Rust Tauri command REST API (port 19529)' },
     ],
     components: {
       schemas: {
@@ -82,6 +83,7 @@ export const openapiOptions: swaggerJSDoc.Options = {
     path.join(__dirname, '../routes/*.ts'),
     path.join(__dirname, './schemas.ts'),
     path.join(__dirname, './commands.ts'),
+    path.join(__dirname, '../routes/rust-api.ts'),
   ],
 };
 

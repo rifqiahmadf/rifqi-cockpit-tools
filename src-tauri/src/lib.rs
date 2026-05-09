@@ -139,6 +139,14 @@ pub fn run() {
                 modules::websocket::start_server().await;
             });
 
+            // 启动 REST API 服务
+            {
+                let app_handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    modules::rest_api::init_rest_api(app_handle).await;
+                });
+            }
+
             // 启动网页查询服务（网络服务配置中的独立模块）
             tauri::async_runtime::spawn(async {
                 modules::web_report::start_server().await;
