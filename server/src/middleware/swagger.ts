@@ -1,20 +1,12 @@
 import swaggerJsdoc from 'swagger-jsdoc';
 import { serve, setup } from 'swagger-ui-express';
 import type { Express } from 'express';
-import {
-  PlatformSchema,
-  QuotaSchema,
-  AccountSchema,
-  InstanceSchema,
-  InstanceStatusSchema,
-  GroupSchema,
-  FingerprintSchema,
-  ConfigSchema,
-  ErrorSchema,
-  SuccessResponseSchema,
-  InvokeResponseSchema,
-  ErrorResponseSchema,
-} from '../docs/schemas.js';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+// Get directory of this file
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // OpenAPI configuration options
 const openApiOptions = {
@@ -44,28 +36,16 @@ const openApiOptions = {
       { name: 'Commands', description: 'Command invocation endpoint for all operations' },
       { name: 'Events', description: 'Server-Sent Events for real-time updates' },
       { name: 'FileSystem', description: 'File system operations' },
+      { name: 'Rust API', description: 'Rust backend command endpoints' },
     ],
     components: {
-      schemas: {
-        Platform: PlatformSchema,
-        Quota: QuotaSchema,
-        Account: AccountSchema,
-        Instance: InstanceSchema,
-        InstanceStatus: InstanceStatusSchema,
-        Group: GroupSchema,
-        Fingerprint: FingerprintSchema,
-        Config: ConfigSchema,
-        Error: ErrorSchema,
-        SuccessResponse: SuccessResponseSchema,
-        InvokeResponse: InvokeResponseSchema,
-        ErrorResponse: ErrorResponseSchema,
-      },
+      schemas: {},
     },
   },
-  // Path to files with OpenAPI annotations
+  // Path to files with OpenAPI annotations - using absolute paths
   apis: [
-    './src/index.ts',
-    './src/routes/*.ts',
+    path.join(__dirname, '../index.ts'),
+    path.join(__dirname, '../routes/*.ts'),
   ],
 };
 
