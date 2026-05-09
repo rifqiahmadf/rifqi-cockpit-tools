@@ -4,6 +4,7 @@ import invokeRouter from './routes/invoke.js';
 import eventsRouter from './routes/events.js';
 import fsRouter from './routes/fs.js';
 import { startHeartbeat } from './services/event-bus.js';
+import { setupSwaggerUI } from './middleware/swagger.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -17,6 +18,8 @@ app.get('/api/version', (_, res) => res.json({ version: '0.22.20' }));
 app.use('/api/invoke', invokeRouter);
 app.use('/api/events', eventsRouter);
 app.use('/api/fs', fsRouter);
+
+setupSwaggerUI(app);
 
 app.listen(PORT, () => {
   console.log(`Cockpit Tools API server running on port ${PORT}`);
