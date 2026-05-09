@@ -1,0 +1,28 @@
+FROM node:20-alpine AS builder
+WORKDIR /app
+
+RUN apk add --no-cache python3 make g++
+
+COPY server/package.json server/package-lock.json* ./
+RUN npm ci
+
+COPY server/ .
+RUN npx tsc --outDir dist || npx tsc --skipLibCheck --outDir dist
+
+FROM node:20-alpine AS runner
+WORKDIR /app
+
+RUN apk add --no-cache python3 make g++
+
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/dist ./dist
+COPY server/package.json ./
+
+RUN mkdir -p /app/data
+
+EXPOSE 3001
+ENV NODE_ENV=production
+ENV DB_PATH=/app/data/cockpit.db
+ENV PORT=3001
+
+CMD ["node", "dist/index.js"]

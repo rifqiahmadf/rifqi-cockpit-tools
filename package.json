@@ -5,9 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:web": "vite --mode web",
     "typecheck": "tsc --noEmit",
     "prebuild": "npm run typecheck",
     "build": "npm run sync-version && tsc && vite build",
+    "build:web": "vite build --mode web",
     "release:preflight": "node scripts/release/preflight.cjs",
     "preview": "vite preview",
     "pretauri": "npm run typecheck",

@@ -46,3 +46,9 @@ target/
 **/*.rs.bk
 docs/plugin-architecture-proposal.md
 .aitasks
+# Browser/web build artifacts
+server/data/
+server/dist/
+*.db
+*.db-shm
+*.db-wal
